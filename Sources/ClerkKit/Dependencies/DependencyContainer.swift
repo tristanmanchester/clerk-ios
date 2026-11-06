@@ -159,10 +159,30 @@ final class DependencyContainer: Dependencies {
     // Queries without an access group span every group the app belongs to, so private state
     // needs a service of its own to stay out of the shared group.
     let allGroups = makeKeychainStorage(service: config.service, accessGroup: nil)
+    let appLocalService = "\(ownerIdentifier.nilIfEmpty ?? config.service).clerk.app"
+    #if os(macOS)
+    // Without an access group the macOS keychain is the file keychain, which only the build that
+    // wrote an item can read. Keep app-local state in the data-protection keychain under the
+    // configured group, with a service of its own, so every build of the app can read it.
     let appLocal = MigratingKeychainStorage(
-      primary: makeKeychainStorage(service: "\(ownerIdentifier.nilIfEmpty ?? config.service).clerk.app", accessGroup: nil),
+      primary: SystemKeychain(
+        service: appLocalService,
+        accessGroup: config.normalizedAccessGroup,
+        useDataProtectionKeychain: true
+      ),
+      fallback: MigratingKeychainStorage(
+        primary: makeKeychainStorage(service: appLocalService, accessGroup: nil),
+        fallback: allGroups,
+        toleratesUnreadableFallback: true
+      ),
+      toleratesUnreadableFallback: true
+    )
+    #else
+    let appLocal = MigratingKeychainStorage(
+      primary: makeKeychainStorage(service: appLocalService, accessGroup: nil),
       fallback: allGroups
     )
+    #endif
     let isInGroup = !probesAccessGroup || canAccessAccessGroup(configured)
     return KeychainStorages(
       shared: configured,
@@ -213,7 +233,8 @@ final class DependencyContainer: Dependencies {
 
     return MigratingKeychainStorage(
       primary: dataProtectionKeychain,
-      fallback: legacyKeychain
+      fallback: legacyKeychain,
+      toleratesUnreadableFallback: true
     )
     #else
     return legacyKeychain
