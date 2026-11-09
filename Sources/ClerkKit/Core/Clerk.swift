@@ -453,7 +453,7 @@ extension Clerk {
   @discardableResult
   public func retryIdentityRestore() async throws -> ClerkIdentityRestoreState {
     if identityRestoreState == .failed || identityRestoreState == .pending {
-      identityController.hydrate()
+      identityController.adoptStoredDeviceToken(force: true)
       if identityRestoreState == .pending {
         try await refreshClient()
       }

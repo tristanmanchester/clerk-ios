@@ -91,15 +91,16 @@ extension ClerkIdentityController {
 
 extension ClerkIdentityController {
   @discardableResult
-  func adoptStoredDeviceToken() -> Bool {
+  func adoptStoredDeviceToken(force: Bool = false) -> Bool {
     // Another app changes the token only through a shared access group.
-    guard let store, clerk?.dependencies.identityIsInAccessGroup == true || hydrationFailed else { return false }
+    guard let store, force || clerk?.dependencies.identityIsInAccessGroup == true || hydrationFailed else { return false }
     let identity: ClerkIdentitySnapshot?
     do {
       let storedToken = try store.deviceToken()
-      guard storedToken != currentDeviceToken || hydrationFailed else { return false }
+      guard force || storedToken != currentDeviceToken || hydrationFailed else { return false }
       identity = try store.load()
     } catch {
+      if force { restoreState = .failed }
       ClerkLogger.logError(error, message: "Failed to read the stored Clerk identity")
       return false
     }
