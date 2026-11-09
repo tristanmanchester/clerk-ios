@@ -442,6 +442,25 @@ extension Clerk {
     resumeRuntimeReconfigurationWaiters()
   }
 
+  /// The authoritative outcome of loading the persisted identity. An empty
+  /// store is a valid signed-out identity; pending/failed are not sign-out.
+  public var identityRestoreState: ClerkIdentityRestoreState {
+    identityController.restoreState
+  }
+
+  /// Retries local identity hydration, then fetches a client when only its
+  /// device token was persisted. Never turns an unreadable store into sign-out.
+  @discardableResult
+  public func retryIdentityRestore() async throws -> ClerkIdentityRestoreState {
+    if identityRestoreState == .failed || identityRestoreState == .pending {
+      identityController.hydrate()
+      if identityRestoreState == .pending {
+        try await refreshClient()
+      }
+    }
+    return identityRestoreState
+  }
+
   /// Refreshes the current client from the API.
   @discardableResult
   public func refreshClient() async throws -> Client? {

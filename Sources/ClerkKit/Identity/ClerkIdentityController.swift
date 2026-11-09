@@ -10,7 +10,8 @@ final class ClerkIdentityController {
   weak var clerk: Clerk?
 
   private(set) var currentDeviceToken: String?
-  private var hydrationFailed = false
+  private(set) var restoreState: ClerkIdentityRestoreState = .pending
+  private var hydrationFailed: Bool { restoreState == .failed }
 
   var sessionTokenGenerations: [String: UInt64] = [:]
   var sessionTokenEpoch: UInt64 = 0
@@ -39,7 +40,7 @@ final class ClerkIdentityController {
 extension ClerkIdentityController {
   func prepareForConfiguration() {
     currentDeviceToken = nil
-    hydrationFailed = false
+    restoreState = .pending
   }
 
   func hydrate() {
@@ -49,11 +50,15 @@ extension ClerkIdentityController {
       identity = try store.load()
     } catch {
       ClerkLogger.logError(error, message: "Failed to load the persisted Clerk identity")
-      hydrationFailed = true
+      restoreState = .failed
       return
     }
-    hydrationFailed = false
-    guard let identity else { return }
+    guard let identity else {
+      restoreState = clerk.client == nil ? .empty : .restored
+      return
+    }
+    restoreState = identity.client != nil || clerk.client != nil ? .restored
+      : (identity.deviceToken == nil ? .empty : .pending)
     currentDeviceToken = identity.deviceToken
     guard clerk.client == nil else { return }
     lastServerDate = identity.serverDate
@@ -69,7 +74,7 @@ extension ClerkIdentityController {
   func resetRuntimeIdentity() {
     guard let clerk else { return }
     currentDeviceToken = nil
-    hydrationFailed = false
+    restoreState = .pending
     lastServerDate = nil
     clerk.setClientFromIdentityController(nil)
   }
@@ -92,8 +97,7 @@ extension ClerkIdentityController {
     let identity: ClerkIdentitySnapshot?
     do {
       let storedToken = try store.deviceToken()
-      hydrationFailed = false
-      guard storedToken != currentDeviceToken else { return false }
+      guard storedToken != currentDeviceToken || hydrationFailed else { return false }
       identity = try store.load()
     } catch {
       ClerkLogger.logError(error, message: "Failed to read the stored Clerk identity")
@@ -168,6 +172,7 @@ extension ClerkIdentityController {
     clerk.setClientFromIdentityController(nil)
     clerk.emitInternalStateChange(.localStorageDidClear)
     try store?.delete()
+    restoreState = .empty
   }
 
   private func commit(
@@ -217,6 +222,7 @@ extension ClerkIdentityController {
     guard let clerk else { return }
     let tokenChanged = identity.deviceToken != currentDeviceToken
     currentDeviceToken = identity.deviceToken
+    restoreState = identity.client != nil ? .restored : (identity.deviceToken == nil ? .empty : .pending)
     if fenceResponses {
       fenceClientResponses()
     }

@@ -11,6 +11,36 @@ import Testing
 @Suite(.serialized)
 struct ClerkIdentityControllerTests {
   @Test
+  func emptyStoreIsConfirmedSignedOut() async throws {
+    let (clerk, _) = makeClerk()
+    #expect(clerk.identityRestoreState == .pending)
+    #expect(try await clerk.retryIdentityRestore() == .empty)
+    #expect(clerk.client == nil)
+  }
+
+  @Test
+  func failedRestoreRetriesTheActualStore() async throws {
+    let keychain = LockableKeychain()
+    let (clerk, _) = makeClerk(identityKeychain: keychain)
+    try clerk.dependencies.identityStore.save(identity(token: "saved-token", client: makeClient(id: "saved"), date: 100))
+    keychain.isLocked = true
+    #expect(try await clerk.retryIdentityRestore() == .failed)
+    #expect(clerk.client == nil)
+    keychain.isLocked = false
+    #expect(try await clerk.retryIdentityRestore() == .restored)
+    #expect(clerk.client?.id == "saved")
+    #expect(clerk.deviceToken == "saved-token")
+  }
+
+  @Test
+  func deviceTokenWithoutClientNeedsServerRecovery() throws {
+    let (clerk, _) = makeClerk()
+    try clerk.dependencies.identityStore.save(identity(token: "saved-token", client: nil, date: 100))
+    clerk.identityController.hydrate()
+    #expect(clerk.identityRestoreState == .pending)
+  }
+
+  @Test
   func responsePersistsTheTokenBeforeUpdatingMemoryAndCachesTheClientWithIt() async throws {
     let (clerk, _) = makeClerk()
     var persistedTokenWhenClientChanged: String?
