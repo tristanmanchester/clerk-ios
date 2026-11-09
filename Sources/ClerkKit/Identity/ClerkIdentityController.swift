@@ -170,6 +170,7 @@ extension ClerkIdentityController {
     fenceClientResponses()
     currentDeviceToken = nil
     lastServerDate = nil
+    restoreState = .pending
     clerk.setClientFromIdentityController(nil)
     clerk.emitInternalStateChange(.localStorageDidClear)
     try store?.delete()
